@@ -36,9 +36,34 @@ namespace OmronCIP
         public const byte CIP_Type_Int = 0xC4;
 
         /// <summary>
-        /// 浮点型数据，四个字节长度
+        /// 长整型，八个字节长度
+        /// </summary>
+        public const byte CIP_Type_Long = 0xC5;
+
+        /// <summary>
+        /// 无符号短整型，两个字节长度
+        /// </summary>
+        public const byte CIP_Type_UShort = 0xC7;
+
+        /// <summary>
+        /// 无符号整型，四个字节长度
+        /// </summary>
+        public const byte CIP_Type_UInt = 0xC8;
+
+        /// <summary>
+        /// 无符号长整型，八个字节长度
+        /// </summary>
+        public const byte CIP_Type_ULong = 0xC9;
+
+        /// <summary>
+        /// 单精度浮点型，四个字节长度
         /// </summary>
         public const byte CIP_Type_Float = 0xCA;
+
+        /// <summary>
+        /// 双精度浮点型，八个字节长度
+        /// </summary>
+        public const byte CIP_Type_Double = 0xCB;
 
         /// <summary>
         /// 字符串类型数据
@@ -51,7 +76,7 @@ namespace OmronCIP
         /// 将标签名转换为Byte数组
         /// </summary>
         /// <param name="tagName">标签名</param>
-        /// <returns></returns>
+        /// <returns>请求路径对应字节数组</returns>
         public static byte[] BuildRequestPathCommand(string tagName)
         {
             using (MemoryStream ms = new MemoryStream())
@@ -99,14 +124,14 @@ namespace OmronCIP
 
                 return ms.ToArray();
             }
-        }        
+        }
 
         /// <summary>
         /// 打包生成一个请求读取数据的节点信息，CIP指令信息
         /// </summary>
         /// <param name="tagName">地址</param>
         /// <param name="length">指代数组的长度</param>
-        /// <returns>CIP的指令信息</returns>
+        /// <returns>读取指令CIP报文对应字节数组</returns>
         public static byte[] PackRequsetRead(string tagName, int length = 1)
         {
             byte[] buffer = new byte[1024];
@@ -128,13 +153,13 @@ namespace OmronCIP
         }
 
         /// <summary>
-        /// 根据指定的数据和类型，生成对应的数据
+        /// 根据指定的数据和类型，打包生成对应的写入指令
         /// </summary>
-        /// <param name="address">地址信息</param>
+        /// <param name="tagName">地址信息</param>
         /// <param name="typeCode">数据类型</param>
         /// <param name="value">字节值</param>
         /// <param name="length">如果节点为数组，就是数组长度</param>
-        /// <returns>CIP的指令信息</returns>
+        /// <returns>写入指令CIP报文对应字节数组</returns>
         public static byte[] PackRequestWrite(string tagName, ushort typeCode, byte[] value, int length = 1)
         {
             byte[] buffer = new byte[1024];
@@ -281,7 +306,7 @@ namespace OmronCIP
                 {
                     switch (response[44])
                     {
-                        case CIP_Type_Bool://Bool
+                        case CIP_Type_Bool:
                             dataLength = response.Length - 46;
                             if (dataLength == 2 && response[46] <= 1 && response[47] == 0)
                             {
@@ -289,14 +314,13 @@ namespace OmronCIP
                             }
                             else
                             {
-                                List<char> charLiat = new List<char>();
                                 for (int j = 0; j < dataLength; j++)
                                 {
-                                    result += Convert.ToString(CIPHelper.Reverse(response[46 + j]), 2).PadLeft(8, '0');
+                                    result += Convert.ToString(Reverse(response[46 + j]), 2).PadLeft(8, '0');
                                 }
                             }
                             break;
-                        case CIP_Type_Short://Short
+                        case CIP_Type_Short:
                             dataLength = (response.Length - 46) / 2;
                             if (dataLength == 1)
                             {
@@ -309,10 +333,10 @@ namespace OmronCIP
                                 {
                                     sList.Add((response[46 + j * 2] & 0x00ff) | (response[47 + j * 2] << 8));
                                 }
-                                result = $"[{String.Join(",", sList)}]";
+                                result = sList;
                             }
                             break;
-                        case CIP_Type_Int://Int
+                        case CIP_Type_Int:
                             dataLength = (response.Length - 46) / 4;
                             if (dataLength == 1)
                             {
@@ -330,11 +354,105 @@ namespace OmronCIP
                                     int intResult = (intLow & 0x0000ffff) | (intHigh << 16);
                                     intList.Add(intResult);
                                 }
-                                result = $"[{String.Join(",", intList)}]";
+                                result = intList;
                             }
-
                             break;
-                        case CIP_Type_Float://Float
+                        case CIP_Type_Long:
+                            dataLength = (response.Length - 46) / 8;
+                            if (dataLength == 1)
+                            {
+                                long longLLow = (response[46] & 0x00ff) | (response[47] << 8);
+                                long longLHigh = (response[48] & 0x00ff) | (response[49] << 8);
+                                long longLow = (longLLow & 0x0000ffff) | (longLHigh << 16);
+                                long longHLow = (response[50] & 0x00ff) | (response[51] << 8);
+                                long longHHigh = (response[52] & 0x00ff) | (response[53] << 8);
+                                long longHigh = (longHLow & 0x0000ffff) | (longHHigh << 16);
+                                result = (longLow & 0x00000000ffffffff) | (longHigh << 32);
+                            }
+                            else
+                            {
+                                List<long> longList = new List<long>();
+                                for (int j = 0; j < dataLength; j++)
+                                {
+                                    long longLLow = (response[46] & 0x00ff) | (response[47] << 8);
+                                    long longLHigh = (response[48] & 0x00ff) | (response[49] << 8);
+                                    long longLow = (longLLow & 0x0000ffff) | (longLHigh << 16);
+                                    long longHLow = (response[50] & 0x00ff) | (response[51] << 8);
+                                    long longHHigh = (response[52] & 0x00ff) | (response[53] << 8);
+                                    long longHigh = (longHLow & 0x0000ffff) | (longHHigh << 16);
+                                    long longResult = (longLow & 0x00000000ffffffff) | (longHigh << 32);
+                                    longList.Add(longResult);
+                                }
+                                result = longList;
+                            }
+                            break;
+                        case CIP_Type_UShort:
+                            dataLength = (response.Length - 46) / 2;
+                            if (dataLength == 1)
+                            {
+                                result = (response[46] & 0x00ff) | (response[47] << 8);
+                            }
+                            else
+                            {
+                                List<int> usList = new List<int>();
+                                for (int j = 0; j < dataLength; j++)
+                                {
+                                    usList.Add((response[46 + j * 2] & 0x00ff) | (response[47 + j * 2] << 8));
+                                }
+                                result = usList;
+                            }
+                            break;
+                        case CIP_Type_UInt:
+                            dataLength = (response.Length - 46) / 4;
+                            if (dataLength == 1)
+                            {
+                                int uintLow = (response[46] & 0x00ff) | (response[47] << 8);
+                                int uintHigh = (response[48] & 0x00ff) | (response[49] << 8);
+                                result = (uintLow & 0x0000ffff) | (uintHigh << 16);
+                            }
+                            else
+                            {
+                                List<int> uintList = new List<int>();
+                                for (int j = 0; j < dataLength; j++)
+                                {
+                                    int uintLow = (response[46 + j * 4] & 0x00ff) | (response[47 + j * 4] << 8);
+                                    int uintHigh = (response[48 + j * 4] & 0x00ff) | (response[49 + j * 4] << 8);
+                                    int uintResult = (uintLow & 0x0000ffff) | (uintHigh << 16);
+                                    uintList.Add(uintResult);
+                                }
+                                result = uintList;
+                            }
+                            break;
+                        case CIP_Type_ULong:
+                            dataLength = (response.Length - 46) / 8;
+                            if (dataLength == 1)
+                            {
+                                long ulongLLow = (response[46] & 0x00ff) | (response[47] << 8);
+                                long ulongLHigh = (response[48] & 0x00ff) | (response[49] << 8);
+                                long ulongLow = (ulongLLow & 0x0000ffff) | (ulongLHigh << 16);
+                                long ulongHLow = (response[50] & 0x00ff) | (response[51] << 8);
+                                long ulongHHigh = (response[52] & 0x00ff) | (response[53] << 8);
+                                long ulongHigh = (ulongHLow & 0x0000ffff) | (ulongHHigh << 16);
+                                result = (ulongLow & 0x00000000ffffffff) | (ulongHigh << 32);
+                            }
+                            else
+                            {
+                                List<long> ulongList = new List<long>();
+                                for (int j = 0; j < dataLength; j++)
+                                {
+                                    long ulongLLow = (response[46] & 0x00ff) | (response[47] << 8);
+                                    long ulongLHigh = (response[48] & 0x00ff) | (response[49] << 8);
+                                    long ulongLow = (ulongLLow & 0x0000ffff) | (ulongLHigh << 16);
+                                    long ulongHLow = (response[50] & 0x00ff) | (response[51] << 8);
+                                    long ulongHHigh = (response[52] & 0x00ff) | (response[53] << 8);
+                                    long ulongHigh = (ulongHLow & 0x0000ffff) | (ulongHHigh << 16);
+                                    long ulongResult = (ulongLow & 0x00000000ffffffff) | (ulongHigh << 32);
+                                    ulongList.Add(ulongResult);
+                                }
+                                result = ulongList;
+                            }
+                            break;
+                        case CIP_Type_Float:
                             dataLength = (response.Length - 46) / 4;
                             if (dataLength == 1)
                             {
@@ -353,10 +471,40 @@ namespace OmronCIP
                                     int floatResult = (floatLow & 0x0000ffff) | (floatHigh << 16);
                                     floatList.Add(BitConverter.ToSingle(BitConverter.GetBytes(floatResult), 0));
                                 }
-                                result = $"[{String.Join(",", floatList)}]";
+                                result = floatList;
                             }
                             break;
-                        case CIP_Type_String://String
+                        case CIP_Type_Double:
+                            dataLength = (response.Length - 46) / 8;
+                            if (dataLength == 1)
+                            {
+                                long doubleLLow = (response[46] & 0x00ff) | (response[47] << 8);
+                                long doubleLHigh = (response[48] & 0x00ff) | (response[49] << 8);
+                                long doubleLow = (doubleLLow & 0x0000ffff) | (doubleLHigh << 16);
+                                long doubleHLow = (response[50] & 0x00ff) | (response[51] << 8);
+                                long doubleHHigh = (response[52] & 0x00ff) | (response[53] << 8);
+                                long doubleHigh = (doubleHLow & 0x0000ffff) | (doubleHHigh << 16);
+                                long doubleResult = (doubleLow & 0x00000000ffffffff) | (doubleHigh << 32);
+                                result = BitConverter.ToDouble(BitConverter.GetBytes(doubleResult), 0);
+                            }
+                            else
+                            {
+                                List<double> floatList = new List<double>();
+                                for (int j = 0; j < dataLength; j++)
+                                {
+                                    long doubleLLow = (response[46 + j * 8] & 0x00ff) | (response[47 + j * 8] << 8);
+                                    long doubleLHigh = (response[48 + j * 8] & 0x00ff) | (response[49 + j * 8] << 8);
+                                    long doubleLow = (doubleLLow & 0x0000ffff) | (doubleLHigh << 16);
+                                    long doubleHLow = (response[50 + j * 8] & 0x00ff) | (response[51 + j * 8] << 8);
+                                    long doubleHHigh = (response[52 + j * 8] & 0x00ff) | (response[53 + j * 8] << 8);
+                                    long doubleHigh = (doubleHLow & 0x0000ffff) | (doubleHHigh << 16);
+                                    long doubleResult = (doubleLow & 0x00000000ffffffff) | (doubleHigh << 32);
+                                    floatList.Add(BitConverter.ToDouble(BitConverter.GetBytes(doubleResult), 0));
+                                }
+                                result = floatList;
+                            }
+                            break;
+                        case CIP_Type_String:
                             dataLength = (response[46] & 0x00ff) | (response[47] << 8);
                             byte[] temp = new byte[dataLength];
                             Array.Copy(response, 48, temp, 0, dataLength);
@@ -371,7 +519,6 @@ namespace OmronCIP
             }
             catch (Exception)
             {
-
             }
             return result;
         }
@@ -395,8 +542,23 @@ namespace OmronCIP
                 case TypeCode.Int32:
                     typeCode = CIP_Type_Int;
                     break;
+                case TypeCode.Int64:
+                    typeCode = CIP_Type_Long;
+                    break;
+                case TypeCode.UInt16:
+                    typeCode = CIP_Type_UShort;
+                    break;
+                case TypeCode.UInt32:
+                    typeCode = CIP_Type_UInt;
+                    break;
+                case TypeCode.UInt64:
+                    typeCode = CIP_Type_ULong;
+                    break;
                 case TypeCode.Single:
                     typeCode = CIP_Type_Float;
+                    break;
+                case TypeCode.Double:
+                    typeCode = CIP_Type_Double;
                     break;
                 case TypeCode.String:
                     typeCode = CIP_Type_String;
@@ -408,11 +570,60 @@ namespace OmronCIP
         }
 
         /// <summary>
+        /// 将数据对象转化成byte数组
+        /// </summary>
+        /// <param name="data">数据对象</param>
+        /// <param name="type">数据类型</param>
+        /// <returns>数据对象对应的byte数组</returns>
+        public static byte[] DataToBytes(object data, TypeCode type)
+        {
+            byte[] value;
+            switch (type)
+            {
+                case TypeCode.Boolean:
+                    value = new byte[2];
+                    value[0] = Convert.ToByte(data);
+                    break;
+                case TypeCode.Int16:
+                    value = BitConverter.GetBytes(Convert.ToInt16(data));
+                    break;
+                case TypeCode.Int32:
+                    value = BitConverter.GetBytes(Convert.ToInt32(data));
+                    break;
+                case TypeCode.Int64:
+                    value = BitConverter.GetBytes(Convert.ToInt64(data));
+                    break;
+                case TypeCode.UInt16:
+                    value = BitConverter.GetBytes(Convert.ToUInt16(data));
+                    break;
+                case TypeCode.UInt32:
+                    value = BitConverter.GetBytes(Convert.ToUInt32(data));
+                    break;
+                case TypeCode.UInt64:
+                    value = BitConverter.GetBytes(Convert.ToUInt64(data));
+                    break;
+                case TypeCode.Single:
+                    value = BitConverter.GetBytes(Convert.ToSingle(data));
+                    break;
+                case TypeCode.Double:
+                    value = BitConverter.GetBytes(Convert.ToDouble(data));
+                    break;
+                case TypeCode.String:
+                    value = Encoding.UTF8.GetBytes(Convert.ToString(data));
+                    break;
+                default:
+                    value = new byte[] { 0x00, 0x00 };
+                    break;
+            }
+            return value;
+        }
+
+        /// <summary>
         /// 逆置Byte(8位)数据的比特位，例如 11001000 -> 00010011
         /// </summary>
         /// <param name="data">需逆置的Byte数据</param>
         /// <returns>逆置后的数据</returns>
-        public static byte Reverse(byte data)
+        private static byte Reverse(byte data)
         {
             data = (byte)(((data >> 1) & 0x55) | ((data & 0x55) << 1));
             data = (byte)(((data >> 2) & 0x33) | ((data & 0x33) << 2));

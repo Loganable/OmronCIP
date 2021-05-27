@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 
 namespace OmronCIP
 {
@@ -17,7 +16,7 @@ namespace OmronCIP
 
         #region Properties
         /// <summary>
-        /// 当前会话句柄，与PLC握手时从PLC获得
+        /// 当前会话句柄
         /// </summary>
         public byte[] SessionHandle { get; set; } = { 0x00, 0x00, 0x00, 0x00 };
 
@@ -26,7 +25,22 @@ namespace OmronCIP
         /// </summary>
         public byte Slot { get; set; } = 0;
 
-        public bool IsClosed { get { return socket == null; } }
+        /// <summary>
+        /// 当前连接状态
+        /// </summary>
+        public bool IsConnected {
+            get
+            {
+                try
+                {
+                    socket.Send(new byte[0]);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    return ex.Message.Contains("10035");
+                }
+            }}
         #endregion
 
         #region Constructors
@@ -40,13 +54,13 @@ namespace OmronCIP
         /// <summary>
         /// 生成读取命令
         /// </summary>
-        /// <param name="address">标签地址</param>
-        /// <returns>Message information that contains the result object </returns>
-        private byte[] BuildReadCommand(string address)
+        /// <param name="tagName">变量标签名</param>
+        /// <returns>读取指令</returns>
+        private byte[] BuildReadCommand(string tagName)
         {
             try
             {
-                byte[] commandSpecificData = CIPHelper.PackCommandSpecificData(Slot, CIPHelper.PackRequsetRead(address));
+                byte[] commandSpecificData = CIPHelper.PackCommandSpecificData(Slot, CIPHelper.PackRequsetRead(tagName));
                 return CIPHelper.PackRequest(0x6F, SessionHandle, commandSpecificData);
             }
             catch (Exception)
@@ -58,16 +72,15 @@ namespace OmronCIP
         /// <summary>
         /// 生成写入命令
         /// </summary>
-        /// <param name="address">The address of the tag name </param>
-        /// <param name="typeCode">Data type</param>
-        /// <param name="data">Source Data </param>
-        /// <param name="length">In the case of arrays, the length of the array </param>
-        /// <returns>Message information that contains the result object</returns>
-        private byte[] BuildWriteCommand(string address, ushort typeCode, byte[] data, int length = 1)
+        /// <param name="tagName">变量标签名</param>
+        /// <param name="typeCode">数据类型代码</param>
+        /// <param name="data">数据对应的byte数组</param>
+        /// <returns>写入指令</returns>
+        private byte[] BuildWriteCommand(string tagName, ushort typeCode, byte[] data)
         {
             try
             {
-                byte[] cip = CIPHelper.PackRequestWrite(address, typeCode, data, length);
+                byte[] cip = CIPHelper.PackRequestWrite(tagName, typeCode, data);
                 byte[] commandSpecificData = CIPHelper.PackCommandSpecificData(Slot, cip);
 
                 return CIPHelper.PackRequest(0x6F, SessionHandle, commandSpecificData);
@@ -85,7 +98,6 @@ namespace OmronCIP
         /// <returns>应答报文</returns>
         private byte[] PlcCommunication(byte[] command)
         {
-            int count = 0;
             int totalCount = 0;
             byte[] output = null;
             byte[] response = new byte[512];
@@ -99,7 +111,7 @@ namespace OmronCIP
                     socket.Send(command);
                     do
                     {
-                        count = socket.Receive(response);
+                        int count = socket.Receive(response);
                         byte[] temp = new byte[count];
                         Array.Copy(response, 0, temp, totalCount, count);
                         data.AddRange(temp);
@@ -107,12 +119,10 @@ namespace OmronCIP
                     } while (totalCount < 4 || totalCount != response[2] + 24);
                     output = data.ToArray();
                 }
-                OnLogRecorded?.Invoke(this, output);
                 return output;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                OnErrorOccured?.Invoke(this, ex.Message);
                 return new byte[] { 0 };
             }
         }
@@ -122,9 +132,10 @@ namespace OmronCIP
         /// <summary>
         /// 连接PLC并注册会话ID
         /// </summary>
-        /// <returns>返回是否成功连接PLC</returns>
-        public bool Connect()
+        /// <returns>结果类</returns>
+        public CIPResult Connect()
         {
+            CIPResult result = new CIPResult();
             try
             {
                 socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -134,10 +145,11 @@ namespace OmronCIP
             }
             catch (Exception ex)
             {
-                OnErrorOccured?.Invoke(this, ex.Message);
-                return false;
+                result.Message = ex.StackTrace;
+                result.IsSuccess = false;
+                return result;
             }
-            return true;
+            return result;
         }
 
         /// <summary>
@@ -152,10 +164,7 @@ namespace OmronCIP
                     PlcCommunication(CIPHelper.PackRequest(0x66, SessionHandle, new byte[0]));
                     socket.Shutdown(SocketShutdown.Both);
                 }
-                catch (Exception ex)
-                {
-                    OnErrorOccured?.Invoke(this, ex.Message);
-                }
+                catch{}
                 socket.Close();
                 socket = null;
             }
@@ -165,12 +174,23 @@ namespace OmronCIP
         /// 读取PLC标签地址数据
         /// </summary>
         /// <param name="tagName">标签名</param>
-        /// <returns>数据内容对象</returns>
-        public object Read(string tagName)
+        /// <returns>结果类</returns>
+        public CIPResult Read(string tagName)
         {
-            byte[] readCMD = BuildReadCommand(tagName);
-            byte[] received = PlcCommunication(readCMD);
-            return CIPHelper.UnpackResult(received);
+            CIPResult result = new CIPResult();
+            try
+            {
+                byte[] readCMD = BuildReadCommand(tagName);
+                byte[] received = PlcCommunication(readCMD);
+                result.Content = CIPHelper.UnpackResult(received);
+            }
+            catch (Exception ex)
+            {
+                result.Message = ex.StackTrace;
+                result.IsSuccess = false;
+                return result;
+            }
+            return result;
         }
 
         /// <summary>
@@ -179,42 +199,23 @@ namespace OmronCIP
         /// <param name="tagName">标签名</param>
         /// <param name="data">写入数据</param>
         /// <param name="type">数据类型</param>
-        /// <param name="length">长度</param>
-        public void Write(string tagName, string data, TypeCode type, int length = 1)
+        /// <returns>结果类</returns>
+        public CIPResult Write(string tagName, object data, TypeCode type)
         {
-            byte[] value;
-            switch (type)
+            CIPResult result = new CIPResult();
+            try
             {
-                case TypeCode.Boolean:
-                    value = new byte[2];
-                    value[0] = Convert.ToByte(data);
-                    break;
-                case TypeCode.Int16:
-                    value = new byte[2];
-                    value[0] = (byte)(Convert.ToInt16(data) % 256);
-                    value[1] = (byte)(Convert.ToInt16(data) / 256);
-                    break;
-                case TypeCode.Int32:
-                    value = BitConverter.GetBytes(Convert.ToInt32(data));
-                    break;
-                case TypeCode.Single:
-                    value = BitConverter.GetBytes(Convert.ToSingle(data));                  
-                    break;
-                case TypeCode.String:
-                    value = Encoding.UTF8.GetBytes(Convert.ToString(data));
-                    break;
-                default:
-                    value = new byte[] { 0x00, 0x00 };
-                    break;
+                byte[] writeCMD = BuildWriteCommand(tagName, CIPHelper.GetTypeCode(type), CIPHelper.DataToBytes(data, type));
+                byte[] _ = PlcCommunication(writeCMD);
             }
-            byte[] writeCMD = BuildWriteCommand(tagName, CIPHelper.GetTypeCode(type), value, length);
-            byte[] _ = PlcCommunication(writeCMD);
+            catch (Exception ex)
+            {
+                result.Message = ex.StackTrace;
+                result.IsSuccess = false;
+                return result;
+            }
+            return result;
         }
-        #endregion
-
-        #region Events
-        public event EventHandler<string> OnErrorOccured;
-        public event EventHandler<byte[]> OnLogRecorded;
         #endregion
     }
 }
